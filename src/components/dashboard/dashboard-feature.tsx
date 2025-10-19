@@ -1,34 +1,50 @@
-import { AppHero } from '@/components/app-hero'
+"use client";
 
-const links: { label: string; href: string }[] = [
-  { label: 'Solana Docs', href: 'https://docs.solana.com/' },
-  { label: 'Solana Faucet', href: 'https://faucet.solana.com/' },
-  { label: 'Solana Cookbook', href: 'https://solana.com/developers/cookbook/' },
-  { label: 'Solana Stack Overflow', href: 'https://solana.stackexchange.com/' },
-  { label: 'Solana Developers GitHub', href: 'https://github.com/solana-developers/' },
-]
+import { AnchorProvider } from "@coral-xyz/anchor";
+import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { getNotesProgram, Notes as NotesType } from "anchor/src/notes-exports"; // or '@project/anchor/notes-exports'
+import type { Program } from "@coral-xyz/anchor";
+import { useState } from "react";
 
 export function DashboardFeature() {
-  return (
-    <div>
-      <AppHero title="gm" subtitle="Say hi to your new Solana app." />
-      <div className="max-w-xl mx-auto py-6 sm:px-6 lg:px-8 text-center">
-        <div className="space-y-2">
-          <p>Here are some helpful links to get you started.</p>
-          {links.map((link, index) => (
-            <div key={index}>
-              <a
-                href={link.href}
-                className="hover:text-gray-500 dark:hover:text-gray-300"
-                target="_blank"
-                rel="noopener noreferrer"
-              >
-                {link.label}
-              </a>
-            </div>
-          ))}
-        </div>
-      </div>
-    </div>
-  )
+  const { connection } = useConnection();
+  const wallet = useWallet();
+  const [notes, setNotes] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [message, setMessage] = useState("");
+
+
+  const getProgram = (): Program<NotesType> | null => {
+    if (!wallet.connected) return null;
+    setLoading(true);
+    const provider = new AnchorProvider(connection, wallet as any, { commitment: "confirmed" });
+    return getNotesProgram(provider);
+  };
+
+  const loadNotes = async () => {
+    if (!wallet.connected) return;
+
+    try {
+      const program = getProgram();
+      if (!program) return;
+
+      const notes = await program.account.note.all([
+        {
+          memcmp: {
+            offset: 8, // discriminator
+            bytes: wallet.publicKey!.toBase58(),
+          },
+        },
+      ]);
+
+      setNotes(notes);
+      setMessage("");
+    } catch (e) {
+      console.error("loadNotes failed:", e);
+      setMessage("Failed to load notes");
+    }
+    setLoading(false);
+  };
+
+  return <div>Dashboard Feature</div>;
 }

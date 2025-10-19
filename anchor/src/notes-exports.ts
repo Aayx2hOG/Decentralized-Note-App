@@ -9,7 +9,7 @@ export type { Notes }
 export { NotesIDL }
 
 // The programId is imported from the program IDL.
-export const BASIC_PROGRAM_ID = new PublicKey(NotesIDL.address)
+export const NOTES_PROGRAM_ID = new PublicKey(NotesIDL.address)
 
 // This is a helper function to get the Notes Anchor program.
 export function getNotesProgram(provider: AnchorProvider, address?: PublicKey): Program<Notes> {
@@ -25,6 +25,6 @@ export function getNotesProgramId(cluster: Cluster) {
       return new PublicKey('6z68wfurCMYkZG51s1Et9BJEd9nJGUusjHXNt4dGbNNF')
     case 'mainnet-beta':
     default:
-      return BASIC_PROGRAM_ID
+      return NOTES_PROGRAM_ID
   }
 }
