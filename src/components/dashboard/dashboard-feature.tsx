@@ -142,7 +142,33 @@ export function DashboardFeature() {
       setMessage("Failed to update note");
     }
     setLoading(false);
-  }
+  };
+
+  const deleteNote = async (note: any) => {
+    if (!wallet.connected) return;
+    setLoading(true);
+
+    try {
+      const program = getProgram();
+      if (!program) return;
+
+      const noteAddress = getNoteAddress(note.account.title);
+      if (!noteAddress) return;
+
+      await program.methods.deleteNote().accounts([{
+        note: noteAddress,
+        author: wallet.publicKey!,
+      }]).rpc();
+
+      setMessage("Note deleted successfully");
+      await loadNotes();
+
+    } catch (e) {
+      console.error("deleteNote failed:", e);
+      setMessage("Failed to delete note");
+    }
+    setLoading(false);
+  };
 
   return <div>Dashboard Feature</div>;
 }
