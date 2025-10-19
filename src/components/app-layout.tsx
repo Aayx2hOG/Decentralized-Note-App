@@ -25,7 +25,6 @@ export function AppLayout({
           </ClusterChecker>
           {children}
         </main>
-        <AppFooter />
       </div>
       <Toaster />
     </ThemeProvider>

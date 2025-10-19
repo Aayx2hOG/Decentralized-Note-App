@@ -4,7 +4,7 @@ import { AnchorProvider } from "@coral-xyz/anchor";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
 import { getNotesProgram, NOTES_PROGRAM_ID, Notes as NotesType } from "anchor/src/notes-exports"; // or '@project/anchor/notes-exports'
 import { useState } from "react";
-import { PublicKey, SystemProgram } from "@solana/web3.js";
+import { PublicKey, SystemProgram, Transaction } from "@solana/web3.js";
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Card, CardHeader, CardTitle, CardContent, CardFooter } from '@/components/ui/card'
@@ -56,6 +56,8 @@ export function DashboardFeature() {
         },
       ]);
 
+      const getTs = (n: any) => n?.account?.createdAt ? (n.account.createdAt.toNumber ? n.account.createdAt.toNumber() : Number(n.account.createdAt)) : 0;
+      notes.sort((a: any, b: any) => getTs(b) - getTs(a));
       setNotes(notes);
       setMessage("");
     } catch (e) {
@@ -108,45 +110,88 @@ export function DashboardFeature() {
 
   const updateNote = async (note: any) => {
     if (!editContent.trim()) {
-      setMessage("Content is required for update");
+      setMessage('Content is required');
       return;
     }
     if (!editTitle.trim()) {
-      setMessage("Title is required for update");
+      setMessage('Title is required');
       return;
     }
-    if (editTitle.length > 100) {
-      setMessage("Title cannot be more than 100 characters.");
-      return;
-    }
-    if (editContent.length > 1000) {
-      setMessage("Content cannot be more than 1000 characters.");
-      return;
-    }
-    if (!wallet.connected) return;
     setLoading(true);
 
     try {
       const program = getProgram();
       if (!program) return;
 
-      const noteAddress = await getNoteAddress(note.account.title);
-      if (!noteAddress) return;
+      // If title changed, create new note and delete old one in a single
+      // transaction to avoid two wallet prompts.
+      if (editTitle !== note.account.title) {
+        const newAddr = await getNoteAddress(editTitle);
+        if (!newAddr) return;
 
-      await program.methods.updateNote(editContent).accounts({
-        note: noteAddress,
-        author: wallet.publicKey!,
-      } as any).rpc();
+        const exists = await connection.getAccountInfo(newAddr);
+        if (exists) {
+          setMessage('A note with the new title already exists');
+          setLoading(false);
+          return;
+        }
+        const createIx = await program.methods.createNote(editTitle, editContent)
+          .accounts({ note: newAddr, author: wallet.publicKey!, systemProgram: SystemProgram.programId } as any)
+          .instruction();
 
-      setMessage("Note updated successfully");
-      setEditTitle("");
-      setEditContent("");
+        const oldAddr = await getNoteAddress(note.account.title);
+        if (!oldAddr) return;
+
+        const deleteIx = await program.methods.deleteNote()
+          .accounts({ note: oldAddr, author: wallet.publicKey! } as any)
+          .instruction();
+
+        const tx = new Transaction().add(createIx, deleteIx);
+        tx.feePayer = wallet.publicKey || undefined;
+        tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+
+        if (wallet.signTransaction) {
+          const signed = await wallet.signTransaction(tx);
+          const sig = await connection.sendRawTransaction(signed.serialize());
+          await connection.confirmTransaction(sig, 'confirmed');
+        } else {
+          const sig = await wallet.sendTransaction(tx, connection);
+          await connection.confirmTransaction(sig, 'confirmed');
+        }
+
+        setMessage('Note title changed');
+      } else {
+        const addr = await getNoteAddress(note.account.title);
+        if (!addr) return;
+
+        const ix = await program.methods
+          .updateNote(editContent)
+          .accounts({ note: addr, author: wallet.publicKey! } as any)
+          .instruction();
+
+        const tx = new Transaction().add(ix);
+        tx.feePayer = wallet.publicKey || undefined;
+        tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+        if (wallet.signTransaction) {
+          const signed = await wallet.signTransaction(tx);
+          const sig = await connection.sendRawTransaction(signed.serialize());
+          await connection.confirmTransaction(sig, 'confirmed');
+        } else {
+          const sig = await wallet.sendTransaction(tx, connection);
+          await connection.confirmTransaction(sig, 'confirmed');
+        }
+
+        setMessage('Note updated');
+      }
+
+      setEditTitle('');
+      setEditContent('');
       await loadNotes();
-
-    } catch (e) {
-      console.error("updateNote failed:", e);
-      setMessage("Failed to update note");
+    } catch (err: any) {
+      console.error('update failed', err);
+      setMessage('Update failed: ' + (err?.message ?? String(err)));
     }
+
     setLoading(false);
   };
 
@@ -257,6 +302,52 @@ export function DashboardFeature() {
                 ))}
               </TableBody>
             </Table>
+            {notes.length > 0 && (
+              <div className="mt-4 flex justify-end">
+                <Button variant="destructive" size="sm" disabled={loading || notes.length === 0} onClick={async () => {
+                  if (!wallet.connected) return;
+                  if (!confirm(`Delete all ${notes.length} notes? This cannot be undone.`)) return;
+                  setLoading(true);
+                  try {
+                    const program = getProgram();
+                    if (!program) return;
+
+                    const batchSize = 100;
+                    for (let i = 0; i < notes.length; i += batchSize) {
+                      const batch = notes.slice(i, i + batchSize);
+                      const tx = new Transaction();
+                      for (const n of batch) {
+                        const noteAddr = await getNoteAddress(n.account.title);
+                        if (!noteAddr) continue;
+                        const ix = await program.methods.deleteNote().accounts({ note: noteAddr, author: wallet.publicKey! } as any).instruction();
+                        tx.add(ix);
+                      }
+                      if (!tx.instructions.length) continue;
+                      tx.feePayer = wallet.publicKey || undefined;
+                      tx.recentBlockhash = (await connection.getLatestBlockhash()).blockhash;
+
+                      if (wallet.signTransaction) {
+                        const signed = await wallet.signTransaction(tx);
+                        const sig = await connection.sendRawTransaction(signed.serialize());
+                        await connection.confirmTransaction(sig, 'confirmed');
+                      } else {
+                        const sig = await wallet.sendTransaction(tx, connection);
+                        await connection.confirmTransaction(sig, 'confirmed');
+                      }
+                    }
+
+                    setMessage('All notes deleted');
+                    await loadNotes();
+                  } catch (e) {
+                    console.error('clearAll failed', e);
+                    setMessage('Failed to delete all notes');
+                  }
+                  setLoading(false);
+                }}>
+                  Clear All
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       </CardContent>
