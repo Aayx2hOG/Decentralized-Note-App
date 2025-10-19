@@ -15,6 +15,8 @@ export function DashboardFeature() {
   const [message, setMessage] = useState("");
   const [title, setTitle] = useState("");
   const [content, setContent] = useState("");
+  const [editTitle, setEditTitle] = useState("");
+  const [editContent, setEditContent] = useState("");
 
   const getProgram = (): Program<NotesType> | null => {
     if (!wallet.connected) return null;
@@ -96,7 +98,50 @@ export function DashboardFeature() {
       setMessage("Failed to create note");
     }
     setLoading(false);
+  };
 
+  const updateNote = async (note: any) => {
+    if (!editContent.trim()) {
+      setMessage("Content is required for update");
+      return;
+    }
+    if (!editTitle.trim()) {
+      setMessage("Title is required for update");
+      return;
+    }
+    if (editTitle.length > 100) {
+      setMessage("Title cannot be more than 100 characters.");
+      return;
+    }
+    if (editContent.length > 1000) {
+      setMessage("Content cannot be more than 1000 characters.");
+      return;
+    }
+    if (!wallet.connected) return;
+    setLoading(true);
+
+    try {
+      const program = getProgram();
+      if (!program) return;
+
+      const noteAddress = getNoteAddress(note.account.title);
+      if (!noteAddress) return;
+
+      await program.methods.updateNote(editContent).accounts([{
+        note: noteAddress,
+        author: wallet.publicKey!,
+      }]).rpc();
+
+      setMessage("Note updated successfully");
+      setEditTitle("");
+      setEditContent("");
+      await loadNotes();
+
+    } catch (e) {
+      console.error("updateNote failed:", e);
+      setMessage("Failed to update note");
+    }
+    setLoading(false);
   }
 
   return <div>Dashboard Feature</div>;
