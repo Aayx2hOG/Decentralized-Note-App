@@ -6,7 +6,7 @@ resolution = true
 skip-lint = false
 
 [programs.localnet]
-notes = "CWKGia5HcweWHJLqYgAQPHGbebMQTN9XTbGYwfnvpnyH"
+notes = "Fkswxi1MmPoHJMnG1AiYubb8WpMDBSLZ1o88aZhjJW5v"
 
 [registry]
 url = "https://api.apr.dev"
